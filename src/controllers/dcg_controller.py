@@ -35,7 +35,8 @@ class DeepCoordinationGraphMAC(BasicMAC):
         self.edges_from = None
         self.edges_to = None
         self.edges_n_in = None
-        self._set_edges(self._edge_list(args.cg_edges))
+        self.cg_edges = args.cg_edges 
+        # self._set_edges(self._edge_list(args.cg_edges))
         
     def obs_pair_similarity(self, ep_batch, t):
         # 1) Compute pairwise distances
@@ -72,8 +73,13 @@ class DeepCoordinationGraphMAC(BasicMAC):
             scores,                                    # keep original
             scores.new_full(scores.shape, eps)         # else set to eps
         )
+    # 8) Build edge_list from batch-0’s upper triangle
+        sim0 = filtered_top50[0]                        # [N, N]
+        keep = sim0.triu(diagonal=1) > eps              # bool [N, N]
+        idx  = keep.nonzero(as_tuple=False)             # [M, 2]
+        edge_list = [(int(i), int(j)) for i, j in idx]
 
-        return filtered_top50                          # [B, N, N]
+        return filtered_top50, edge_list
 
     # ================== DCG Core Methods =============================================================================
 
@@ -181,7 +187,8 @@ class DeepCoordinationGraphMAC(BasicMAC):
             If policy_mode=True,    returns the greedy policy (for controller) for the given ep_batch at time t.
             If policy_mode=False,   returns either the Q-values for given 'actions'
                                             or the actions of of the greedy policy for 'actions==None'.  """
-        print(self.obs_pair_similarity(ep_batch, t))
+        sim_res, edge_idx = self.obs_pair_similarity(ep_batch, t) 
+        self._set_edges(self._edge_list(self.cg_edges, edge_idx)) 
         # Get the utilities and payoffs after observing time step t
         f_i, f_ij = self.annotations(ep_batch, t, compute_grads, actions)
         # We either return the values for the given batch and actions...
@@ -260,7 +267,7 @@ class DeepCoordinationGraphMAC(BasicMAC):
         layers.append(nn.Linear(dim, output))
         return nn.Sequential(*layers)
 
-    def _edge_list(self, arg):
+    def _edge_list(self, arg, edge_idx=None):
         """ Specifies edges for various topologies. """
         edges = []
         wrong_arg = "Parameter cg_edges must be either a string:{'vdn','line','cycle','star','full'}, " \
@@ -276,9 +283,11 @@ class DeepCoordinationGraphMAC(BasicMAC):
                 edges = [(i, i + 1) for i in range(self.n_agents - 1)] + [(self.n_agents - 1, 0)]
             elif arg == 'star':     # arrange all agents in a star around agent 0
                 edges = [(0, i + 1) for i in range(self.n_agents - 1)]
-            elif arg == 'full':     # fully connected CG
-                edges = [[(j, i + j + 1) for i in range(self.n_agents - j - 1)] for j in range(self.n_agents - 1)]
-                edges = [e for l in edges for e in l]
+            #elif arg == 'full':     # fully connected CG
+             #   edges = [[(j, i + j + 1) for i in range(self.n_agents - j - 1)] for j in range(self.n_agents - 1)]
+             #   edges = [e for l in edges for e in l]
+            elif arg == 'full':
+                edges = edge_idx
             else:
                 assert False, wrong_arg
         # ... an int for the number of random edges (<= (n_agents-1)!), ...
