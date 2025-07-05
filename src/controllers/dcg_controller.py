@@ -35,6 +35,36 @@ class DeepCoordinationGraphMAC(BasicMAC):
         self.edges_to = None
         self.edges_n_in = None
         self._set_edges(self._edge_list(args.cg_edges))
+        
+    def obs_pair_similarity(self, ep_batch, t):
+        """Simple L2‐norm similarity among all obs pairs."""
+        obs = ep_batch['obs'][:, t]               # [B, N, D]
+        diff = obs.unsqueeze(2) - obs.unsqueeze(1)  # [B, N, N, D]
+        norm = diff.norm(dim=1)                    # [B, N, N]
+        mask = th.triu(th.ones(N, N, dtype=th.bool), diagonal=1)  # True for i<j
+        filtered = th.where(mask.unsqueeze(0), norm, th.tensor(float('nan'), device=norm.device))
+        # filtered now has only the upper‐triangle distances (others NaN)
+        B, N, _ = filtered.shape
+
+        # 1) Replace NaNs (or masked-out entries) with zero so they won’t get picked
+        scores = th.nan_to_num(filtered, nan=0.0)
+
+        # 2) Flatten per batch and pick the k = 50% largest entries
+        flat = scores.view(B, -1)                      # [B, N*N]
+        k    = int(flat.size(1) * 0.5)                 # half of all entries
+        topk = flat.topk(k, dim=1).values              # [B, k]
+
+        # 3) The cutoff per batch is the smallest of those top-k
+        thresh = topk[:, -1].view(B, 1, 1)             # [B, 1, 1]
+
+        eps = 1e-6
+        # assume `scores` is your [B,N,N] tensor and `thresh` is [B,1,1] as before
+        filtered_top50 = th.where(
+            scores >= thresh,
+            scores,
+            scores.new_full(scores.shape, eps)
+        )
+        return              
 
     # ================== DCG Core Methods =============================================================================
 
