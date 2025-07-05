@@ -41,7 +41,7 @@ class DeepCoordinationGraphMAC(BasicMAC):
         obs = ep_batch['obs'][:, t]               # [B, N, D]
         diff = obs.unsqueeze(2) - obs.unsqueeze(1)  # [B, N, N, D]
         norm = diff.norm(dim=1)                    # [B, N, N]
-        mask = th.triu(th.ones(N, N, dtype=th.bool), diagonal=1)  # True for i<j
+        mask = th.triu(th.ones(self.n_agents, self.n_agents, dtype=th.bool), diagonal=1)  # True for i<j
         filtered = th.where(mask.unsqueeze(0), norm, th.tensor(float('nan'), device=norm.device))
         # filtered now has only the upper‐triangle distances (others NaN)
         B, N, _ = filtered.shape
@@ -64,7 +64,7 @@ class DeepCoordinationGraphMAC(BasicMAC):
             scores,
             scores.new_full(scores.shape, eps)
         )
-        return              
+        return filtered_top50      
 
     # ================== DCG Core Methods =============================================================================
 
