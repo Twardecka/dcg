@@ -22,6 +22,7 @@ class DeepCoordinationGraphMAC(BasicMAC):
         self.iterations = args.msg_iterations
         self.normalized = args.msg_normalized
         self.anytime = args.msg_anytime
+        self.n_agents = args.n_agents
         # Create neural networks for utilities and payoff functions
         self.utility_fun = self._mlp(self.args.rnn_hidden_dim, args.cg_utilities_hidden_dim, self.n_actions)
         payoff_out = 2 * self.payoff_rank * self.n_actions if self.payoff_decomposition else self.n_actions ** 2
@@ -37,34 +38,42 @@ class DeepCoordinationGraphMAC(BasicMAC):
         self._set_edges(self._edge_list(args.cg_edges))
         
     def obs_pair_similarity(self, ep_batch, t):
-        """Simple L2‐norm similarity among all obs pairs."""
-        obs = ep_batch['obs'][:, t]               # [B, N, D]
-        diff = obs.unsqueeze(2) - obs.unsqueeze(1)  # [B, N, N, D]
-        norm = diff.norm(dim=1)                    # [B, N, N]
-        mask = th.triu(th.ones(self.n_agents, self.n_agents, dtype=th.bool), diagonal=1)  # True for i<j
-        filtered = th.where(mask.unsqueeze(0), norm, th.tensor(float('nan'), device=norm.device))
-        # filtered now has only the upper‐triangle distances (others NaN)
-        B, N, _ = filtered.shape
+        # 1) Compute pairwise distances
+        obs  = ep_batch['obs'][:, t]                    # [B, N, D]
+        diff = obs.unsqueeze(2) - obs.unsqueeze(1)      # [B, N, N, D]
+        norm = diff.norm(dim=-1)                        # [B, N, N]
 
-        # 1) Replace NaNs (or masked-out entries) with zero so they won’t get picked
-        scores = th.nan_to_num(filtered, nan=0.0)
+        # 2) Pull N (and B) from the runtime shape
+        B, N, _ = norm.shape
 
-        # 2) Flatten per batch and pick the k = 50% largest entries
+        # 3) Build a matching upper‐triangle mask
+        mask = th.triu(
+            th.ones((N, N), dtype=th.bool, device=norm.device),
+            diagonal=1
+        )                                              # [N, N]
+        # broadcast to [B, N, N] and mask out lower triangle + diagonal
+        filtered = norm.masked_fill(~mask.unsqueeze(0), float("nan"))
+
+        # 4) Zero out the NaNs so they don’t count as “large” below
+        scores = th.nan_to_num(filtered, nan=0.0)       # [B, N, N]
+
+        # 5) Flatten and pick the top-50% distances per batch
         flat = scores.view(B, -1)                      # [B, N*N]
         k    = int(flat.size(1) * 0.5)                 # half of all entries
         topk = flat.topk(k, dim=1).values              # [B, k]
 
-        # 3) The cutoff per batch is the smallest of those top-k
-        thresh = topk[:, -1].view(B, 1, 1)             # [B, 1, 1]
+        # 6) Threshold = smallest value among the top-k
+        thresh = topk[:, -1].view(B, 1, 1)              # [B, 1, 1]
 
+        # 7) Keep only the top-50%, floor the rest at eps
         eps = 1e-6
-        # assume `scores` is your [B,N,N] tensor and `thresh` is [B,1,1] as before
         filtered_top50 = th.where(
-            scores >= thresh,
-            scores,
-            scores.new_full(scores.shape, eps)
+            scores >= thresh,                          # if in top 50%
+            scores,                                    # keep original
+            scores.new_full(scores.shape, eps)         # else set to eps
         )
-        return filtered_top50      
+
+        return filtered_top50                          # [B, N, N]
 
     # ================== DCG Core Methods =============================================================================
 
@@ -172,6 +181,7 @@ class DeepCoordinationGraphMAC(BasicMAC):
             If policy_mode=True,    returns the greedy policy (for controller) for the given ep_batch at time t.
             If policy_mode=False,   returns either the Q-values for given 'actions'
                                             or the actions of of the greedy policy for 'actions==None'.  """
+        print(self.obs_pair_similarity(ep_batch, t))
         # Get the utilities and payoffs after observing time step t
         f_i, f_ij = self.annotations(ep_batch, t, compute_grads, actions)
         # We either return the values for the given batch and actions...
