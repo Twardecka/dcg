@@ -16,6 +16,7 @@ class DeepCoordinationGraphMAC(BasicMAC):
 
     def __init__(self, scheme, groups, args):
         super().__init__(scheme, groups, args)
+        self.device = args.device
         self.n_actions = args.n_actions
         self.payoff_rank = args.cg_payoff_rank
         self.payoff_decomposition = isinstance(self.payoff_rank, int) and self.payoff_rank > 0
@@ -309,11 +310,12 @@ class DeepCoordinationGraphMAC(BasicMAC):
 
     def _set_edges(self, edge_list):
         """ Takes a list of tuples [0..n_agents)^2 and constructs the internal CG edge representation. """
-        self.edges_from = th.zeros(len(edge_list), dtype=th.long)
-        self.edges_to = th.zeros(len(edge_list), dtype=th.long)
+        self.edges_from = th.zeros(len(edge_list), dtype=th.long, device=self.device)
+        self.edges_to = th.zeros(len(edge_list), dtype=th.long, device=self.device)
         for i, edge in enumerate(edge_list):
             self.edges_from[i] = edge[0]
             self.edges_to[i] = edge[1]
+        one_vec = th.ones(len(edge_list), dtype=th.float32, device=self.device)
         self.edges_n_in = torch_scatter.scatter_add(src=self.edges_to.new_ones(len(self.edges_to)),
                                                     index=self.edges_to, dim=0, dim_size=self.n_agents) \
                           + torch_scatter.scatter_add(src=self.edges_to.new_ones(len(self.edges_to)),
