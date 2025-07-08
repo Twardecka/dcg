@@ -7,7 +7,9 @@ env_args:
   pretrained_wrapper: null
   common_reward: True  # Run experiment with common reward setup
   reward_scalarisation: "sum"  # How to aggregate rewards to single common reward (only used if common_reward is True)
-
+  num_good: 3
+  num_adverasaries: 10
+  
 test_greedy: True
 test_nepisode: 100
 test_interval: 50000

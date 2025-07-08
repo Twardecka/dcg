@@ -34,7 +34,7 @@ def run(_run, _config, _log):
     _log.info("\n\n" + experiment_params + "\n")
 
     # configure tensorboard logger
-    unique_token = "{}__{}".format(args.name, datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
+    unique_token = "{}/{}__{}__{}__{}".format(args.env, args.env, args.name, args.agent, "seed_"+str(args.seed))
     args.unique_token = unique_token
     setproctitle.setproctitle(unique_token)
     if args.use_tensorboard:
